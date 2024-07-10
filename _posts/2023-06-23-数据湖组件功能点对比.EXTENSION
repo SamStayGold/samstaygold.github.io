@@ -1,0 +1,53 @@
+---
+title: 数据湖组件功能点对比
+date: 2023-06-23 22:02:03 +0800
+categories: [大数据, 数据湖]
+tags: [paimon]
+---
+
+| 功能 | Hudi V0.12.2 | Iceberg V1.1.0 | Paimon V0.7.0-SNAPSHOT | 说明 |
+|------|--------------|----------------|-----------------------|------|
+| ACID事务 | 支持 | 支持 | 支持 | |
+| Copy-On-Write 写时复制 | 支持 | 支持 | 不支持（另有全新方案） | 在写入/更新数据时，直接同步合并原文件，生成新版本的基文件（需要重写整个列数据文件，即使只有一个字节的新数据被提交）。写入比较重，但读取优化，适合频繁读的工作负载，因为数据集的最新版本在列式文件中始终可用。 |
+| Merge-On-Read 读时合并 | 支持 | 部分支持，无法平衡合并性能，需要手动做compaction操作 | 部分支持（另有全新方案） | 使用列式（parquet）与行式（avro）文件组合，进行数据存储。在更新记录时，更新到增量文件中（avro），然后进行异步（或同步）的compaction，创建列式文件（parquet）的新版本。适合频繁写的工作负载，因为新记录是以appending 的模式写入增量文件中。但是在读取数据集时，需要将增量文件与旧文件进行合并，生成列式文件。 |
+| 基于 LSM 树的存储合并结构 | 部分支持，MOR 的整体结构类似 LSM，但是合并时全读全写 | 不支持 | 支持原生 LSM | 利用分区+分桶+LSM 树来高效存储流式数据，支持高性能的更新，合并，查询。Paimon 的存储模式相比 Hudi 和 Iceberg 都更有优势。 |
+| 高效的Bulk Load能力 | 支持 | 不支持 | 支持 | 初始化载入的时候比较有用，Hudi使用基于排序的写入算法，避免了常规insert/upsert流程的内存处理逻辑。 |
+| 索引支持的高效合并能力 | 支持 | 不支持 | 不支持 | 使用记录级索引来跟踪每个数据记录的文件位置，从而更快地进行合并操作。可以减少COW/MOR需要合并的文件量，数据量，减少IO |
+| 表迁移能力 | 支持 | 支持 | 不支持 | 利用提供的工具迁移现有表单到数据湖 |
+| 增量读取 | 支持 | 部分支持（只有append操作更新的数据可被取出） | 支持 | 可以方便的取出某个时间区间内写入的数据 |
+| 时间旅行 | 支持 | 支持 | 支持 | 支持读取特定时间的快照数据 |
+| 摄入流托管 | 支持 | 不支持（需要对接Flink） | 不支持（需要对接Flink） | 有现成的工具集支持数据摄入 |
+| 并发控制Concurrency Control | 支持 | 支持 | 支持 | Hudi支持基于版本的乐观并发控制 |
+| 主键索引 | 支持 | 不支持 | 支持 | https://hudi.apache.org/docs/key_generation/ |
+| 列级元信息和查询筛选 | 支持 | 支持 | 支持 | 查询的时候支持基于元数据做谓词下推和剪枝 |
+| 分区更新 | 不支持 | 支持 | 不支持 | 支持更新表的分区结构 |
+| 去重 | 支持多种去重方式 | 支持merge into的方式 | 支持多种去重方式，Merge方法支持 Deduplicate，Aggregate | Record key uniqueness, Precombine Utility Customizations, Merge, Drop dupes from inserts |
+| Tag 到 Hive 分区映射能力 | 不支持 | 不支持 | 支持 | 基于 Tag 维护某一时刻内的数据快照，并映射到 Hive 分区供批流程读取 |
+| 文件大小控制 | 自动优化 | 需要手动维护 | 有自动的 compaction，可以配置 compaction 任务，但文件大小需要自己维护。 | Hudi的数据文件的大小可以配置，数据处理过程中会尽量对齐 |
+| Compaction | 自动优化 | 需要手动维护 | 有自动的 compaction，可以配置 compaction 任务，但文件大小需要自己维护。 | MOR的时候可以合并changelog |
+| 历史版本清理 | 自动优化 | 需要手动维护 | 自动优化 | 超过留存时间的snapshot需要清理掉，Hudi有工具可以配置清理服务 |
+| 索引管理 | 支持 | 不支持 | 支持 | Iceberg没有索引概念 |
+| 线性聚类 | 支持自动聚类 | 写入时需要强制排序 | LSM 树默认有序 | 将部分数据聚合到一起，加速查询 |
+| 多维空间聚类 | 自动聚类支持z曲线/希尔伯特曲线算法 | 需要手动处理z曲线 | 未提及 | 多维空间查询的优化 |
+| Schema更新 | 只能用Spark更新，支持add, reorder, drop, rename, update | 支持add, reorder, drop, rename, update | 支持 add，rename，drop，change type 等 | |
+| 可扩展的元数据管理 | 元数据表管理，HFile格式加速lookup查询 | 元数据文件基于Avro，比较慢，需要手动管理 | 元数据表管理，HFile格式加速lookup查询 | |
+| CLI工具 | 支持 | 不支持 | 不支持 | |
+| 数据校验工具 | 支持Pre-Commit Validators | 不支持 | 不支持 | |
+| 提交前转换 | 支持Pre-Commit Transformers | 不支持 | 不支持 | |
+| 提交提醒 | 有Commit Notifications回传 | 不支持 | 不支持 | |
+| 失败提交的管理 | 自动处理Automated Marker Mechanism | 需要手动维护，失败的commit可能会导致表损坏 | 需要手动维护 | |
+| 监控 | 有开盒即用的监控方式直接上报指标到Prom | 不支持 | 不支持 | |
+| 保存点和数据恢复 | 支持留存特定版本数据，支持恢复命令 | 需要DIY | 需要DIY | |
+| Apache Spark支持 | 读 + 写 | 读 + 写 | 读 + 写 | |
+| Apache Flink | 读 + 写 | 读 + 写 | 读 + 写 | |
+| Presto | 读 | 读 + 写 | 读 | Paimon 这边 Presto 的 connector 目前看起来只支持文件形式的元数据存储，使用时需要注意 |
+| Trino | 读 | 读 + 写 | 读 | |
+| Hive | 读 | 读 + 写 | 读 + 写 | |
+| Kafka Connect | 写 | 不支持 | 不支持 | |
+| Kafka | 写 | 不支持 | 写 | |
+| Pulsar | 写 | 写 | Pulsar | |
+| Debezium | 写 | 写 | 写 | |
+| Kyuubi | 读 + 写 | 读 + 写 | 读 + 写 | |
+| ClickHouse | 读 | 不支持 | 不支持 | |
+| Hadoop支持 | 官方不支持Hadoop3，Hive3.1 编译需要动源码 | 不支持 Hadoop3 | 支持 Hadoop3，匹配Hive 能力 | |
+| 数据格式支持 | 默认 Parquet，日志文件是自己的log格式 | 默认 parquet，支持 orc，avro | 默认 Orc，支持 parquet 和 avro | |
