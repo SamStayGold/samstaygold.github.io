@@ -1,0 +1,394 @@
+---
+title: Kyuubi 调研
+date: 2023-07-21 20:01:03 +0800
+categories: [大数据, Kyuubi]
+tags: [kyuubi]
+---
+
+## 简介
+
+Kyuubi 是一个分布式和多租户的网关，为数据仓库和数据湖提供无服务器的 SQL 查询服务。它构建在各种现代计算框架（如Apache Spark、Flink、Doris、Hive和Trino等）之上，可以查询分布在异构数据源上的大规模数据集。
+Kyuubi 通过统一的接口提供了简化、安全的访问，使用户可以使用熟悉的工具和 SQL 查询语言来处理业务和数据。它还提供了高可用性、多租户和高性能等特性，以满足企业级的大数据查询需求。
+Kyuubi 项目最初由网易数帆开发并于 2018 年开源，2021 年 6 月捐赠 Apache 基金会，经过 1 年多的孵化于 2022 年 11 月通过投票，在 12 月顺利毕业，成为 Apache 基金会顶级开源项目。Kyuubi 社区非常活跃，各大公司的落地应用也非常积极，阿里、Bilibili、网易、腾讯、小米、雪球和知乎等公司都在使用 Apache Kyuubi。
+
+## 功能特性
+### 统一的接口
+Kyuubi 提供了多种应用程序编程接口（API），包括 Hive Thrift Protocol、RESTful APIs和MySQL Protocol。用户可以使用这些接口与 Kyuubi 服务器进行连接和交互，执行 SQL 查询、元数据请求等操作。
+### 多租户支持
+Kyuubi 支持端到端的多租户，通过集中身份验证和授权管理，确保数据和资源的安全访问。它支持各种安全协议，如LDAP和Kerberos，并使用相同的可信客户端身份在不同的引擎之间进行身份验证和授权。
+### 高可用性
+Kyuubi 的设计具有高可用性，确保在指定的时间段内持续运行并提供可靠的服务。它支持负载均衡、故障检测和集群维护，以实现高可用性和零停机时间的服务。
+### 高性能
+Kyuubi 通过使用现代的查询引擎和性能插件，如Z-Ordering和查询优化器等，提供高性能的查询服务。它利用多个应用程序以实现高吞吐量、低延迟和可扩展的计算资源。
+### 无服务器 SQL
+Kyuubi 的无服务器 SQL 功能使用户能够以与关系型数据库相同的方式使用 SQL 查询语言进行数据处理和分析。它支持对各种数据源的广泛和安全的数据访问，并在大规模数据上实现高性能的计算资源。
+### 多引擎支持
+Kyuubi 支持在不同的计算框架上构建分布式 SQL 查询引擎，如 Apache Spark、Flink、Doris、Hive 和 Trino 等。用户可以根据自己的需求选择适合的引擎，以实现不同规模的数据处理和分析。
+### 扩展性
+Kyuubi 具有良好的扩展性，可以通过添加插件和扩展来满足特定的需求。它提供了开发工具和连接器等扩展功能，允许用户根据自己的需要定制和扩展 Kyuubi 组件。
+
+## 与 Spark Thrift Server 的比较
+Apache Spark Thrift JDBC/ODBC服务器是Apache Spark社区基于HiveServer2实现的Thrift服务。它被设计为与HiveServer2无缝兼容，通过JDBC接口以纯SQL方式为最终用户提供Spark SQL功能。这种“开箱即用”的模式减少了用户使用Spark的障碍和成本。Kyuubi和Spark在这个目标上是一致的。此外，Kyuubi在多租户支持、服务可用性、服务并发能力、数据安全性等方面进行了增强。
+
+### 生产中使用 STS 遇到的问题
+**资源隔离问题**
+
+因为只有一个运行于 Yarn 上的 Spark Application，无法从用户界面上调整队列、内存和其他与资源相关的配置，因为它已经了启动了。查询只能发送到预先设置的公平调度器池中，实现简单的隔离运行。公平调度器池只能提供Spark应用程序内的低级别隔离，并且必须在Spark ThriftServer启动之前进行配置。
+
+**高可用**
+
+我们虽然在生产中部署了多台 STS节点，但受限于 STS 的有状态特性，Spark ThriftServer的社区版其实并不支持高可用。当发生硬件和软件故障导致故障切换时，所有当前的连接和正在运行的作业都会失败。只能让用户重新提交查询，造成资源浪费。
+
+**并发问题**
+
+STS 的 Driver 端负责处理查询请求接入，查询编译优化工作。在用户提交的查询请求并发较高的时候，就会出现查询排队，Driver 端 OOM 的问题。在生产环境中，受限于 STS 的 Driver 端性能，我们只能采用多实例配置，负载均衡由任务提交的逻辑处理。
+
+## Kyuubi 的优势
+### 资源调整更灵活
+Kyuubi基于Kyuubi Engines的概念应用了多租户特性，其中一个Engine就是一个Spark应用程序。
+
+在Kyuubi系统中，Engines按租户进行隔离。租户通过JDBC连接进行统一，端到端具有唯一性。Kyuubi服务器将识别和验证用户（Kerberos），然后接入或创建属于该特定用户的Engine。在Engine内部，Engine的用户是相同的。
+
+不同于 STS，Kyuubi 的Engines是具有生命周期的，与通过客户端配置指定的kyuubi.engine.share.level相关。如果设置为CONNECTION，则为每个JDBC连接创建相应的Engine，并在关闭连接时终止自身。如果设置为USER，则相应的Engine将被缓存并与来自同一用户的所有JDBC连接共享，就算通过HA模式中的不同Kyuubi服务器进行连接，也可以直达对应用户的 Engine。在所有会话关闭后，Engine最终会超时退出，节省资源占用。
+
+### 更强的并发支持和更高的稳定性
+HiveServer2和Spark ThriftServer中的查询编译和优化是在服务器端完成的，而Kyuubi是在Engine端进行这些操作。这对于减轻服务器负载和提高客户端并发性非常有用。属于计算阶段的任务调度也在Kyuubi的Engine端处理。因此 Kyuubi Server 在生产中不会遇到 STS 的 GC/OOM 的问题。在做好租户隔离的场景下（比如 BI/普通用户切分）用户的操作影响也只限于自己的 Engine 内，不会影响其他用户以及 Kyuubi 服务器。
+
+### 高可用支持
+Kyuubi基于Zookeeper提供了高可用性和负载均衡的解决方案。
+1. 客户端可以从服务发现层的命名空间中找到多个已注册的Kyuubi实例（k.i.），然后选择连接。注册到同一命名空间的Kyuubi实例提供了彼此之间的负载均衡能力。
+2. 所选的Kyuubi实例将从服务发现层的Engine命名空间中选择一个可用的Engine实例（e.i.）建立连接。如果没有找到可用实例，它将创建一个新实例，等待Engine完成注册，然后继续连接。
+3. 如果同一个用户请求建立新连接，连接将被建立到相同或其他Kyuubi实例，但Engine实例将被重复使用。
+4. 对于来自不同用户的连接，将重复步骤2和3。这是因为在服务发现层中，用于存储Engine实例地址的命名空间是基于用户隔离的（默认情况下），不同用户不能跨命名空间访问其他用户的实例。
+
+依赖部署
+Spark 3.1 部署
+目前 Spark3 已经到了 3.4.1 版本，高版本Spark要求的Java 8 的小版本（8u362+），以及 Python3 版本（3.7+）要求更高，考虑到生产环境大数据环境通用的 Java 8版本（8u112），暂时选择 Spark3.1.3 作为集群的部署版本。我们没有直接使用社区发行版，而是修改了 HDP 的依赖，编译了自己的 Spark3.1.3 环境。
+打包好的 tgz 安装包位于 hdtestcom01，hdtestcom02 的/opt 路径下解压。
+然后配置好Spark 的环境变量即可, 变量配置的流程就不在这里详细赘述了。
+
+## Kyuubi 部署
+### Kyuubi 编译改造记录
+1. 社区版本3.1.x 代码正常，而 HDP 版本合入了HIVE-19568 Patch，导致 Hive 的SessionManger 代码稍有变化。
+```java
+// 社区的
+  public SessionManager(HiveServer2 hiveServer2) {
+    super(SessionManager.class.getSimpleName());
+    this.hiveServer2 = hiveServer2;
+  }
+// HDP的
+  public SessionManager(HiveServer2 hiveServer2, boolean allowSessions) {
+    super(SessionManager.class.getSimpleName());
+    this.hiveServer2 = hiveServer2;
+    this.allowSessions = allowSessions;
+  }
+```
+
+导致 Kyuubi 编译报错，需要修改 Kyuubi 的代码，将 SessionManager 的构造函数改为 HDP 版本的。
+```scala
+// Kyuubi 的
+private val internalSessionManager = new ImportedHiveSessionManager(null)
+改为
+// 我们改造的
+private val internalSessionManager = new ImportedHiveSessionManager(null, true)
+```
+
+### 编译命令
+```bash
+./build/dist --tgz  --flink-provided --spark-provided --hive-provided --mvn /usr/local/hadoop_build_tools/maven3/bin/mvn -DskipTests -Pspark-3.1 -Pflink-1.17 -DskipScalaTests=true -Dmaven.test.skip
+```
+
+
+### 软件包部署及服务配置
+编译完成打包好的软件包，解压到 hdtestcom02节点上的/opt 路径下，开始配置 kyuubi 环境。
+这里环境配置参考了 HDP 处理 STS 环境的方法。
+
+kyuubi-env.sh配置
+```bash
+#!/usr/bin/env bash
+# 处理权限相关逻辑
+export KRB5CCNAME=/tmp/krb5cc_kyuubi
+kinit -kt /etc/security/keytabs/hive.service.keytab hive/hdtestcom02.dev.com@xxx.CN
+
+export SPARK_HOME=/opt/spark3
+export SPARK_CONF_DIR=${SPARK_CONF_DIR:-/opt/spark3/conf}
+
+export HADOOP_HOME=${HADOOP_HOME:-/usr/hdp/3.1.0.0-78/hadoop}
+export HADOOP_CONF_DIR=${HADOOP_CONF_DIR:-/usr/hdp/3.1.0.0-78/hadoop/conf}
+export JAVA_HOME=/usr/local/jdk1.8.0_101
+
+export HDP_VERSION=3.1.0.0-78
+```
+kyuubi-defaults.conf的一些配置说明如下
+```bash
+# 配置 kyuubi 的域名端口
+kyuubi.frontend.bind.host       hdtestcom02.dev.com
+kyuubi.frontend.bind.port       10099
+
+# kerberos的相关配置，这里principal 必须要有带主机 Hosts，因此借用了 hiveserver 的 principal
+kyuubi.authentication   KERBEROS
+kyuubi.kinit.principal hive/hdtestcom02.dev.com@xxx.CN
+kyuubi.kinit.keytab     /etc/security/keytabs/hive.service.keytab
+
+# 高可用配置，kyuubi 基于 zookeeper 实现高可用
+kyuubi.ha.enabled true
+kyuubi.ha.zookeeper.quorum hdtest06.dev.com:2181,hdtest08.dev.com:2181,hdtestcom01.dev.com:2181
+kyuubi.ha.zookeeper.client.port 2181
+kyuubi.ha.zookeeper.session.timeout 600000
+kyuubi.ha.zookeeper.namespace=kyuubi1.7.1
+kyuubi.session.engine.initialize.timeout=180000
+
+# 监控项配置，Prometheus 监控
+kyuubi.metrics.enabled true
+kyuubi.metrics.reporters PROMETHEUS
+kyuubi.metrics.prometheus.path /metrics
+kyuubi.metrics.prometheus.port 10019
+
+# 补充的一些 spark 配置，队列，引擎类型等等
+spark.master=yarn
+spark.yarn.queue=data_etl
+spark.executor.memory=2g
+
+# 配置动态资源管理（不含外部 shuffle service）
+spark.dynamicAllocation.enabled=true
+spark.dynamicAllocation.shuffleTracking.enabled=true
+spark.dynamicAllocation.shuffleTracking.timeout=30min
+spark.cleaner.periodicGC.interval=5min
+spark.dynamicAllocation.minExecutors=5
+spark.dynamicAllocation.maxExecutors=40
+spark.dynamicAllocation.initialExecutors=5
+spark.dynamicAllocation.executorIdleTimeout=60s
+spark.dynamicAllocation.cachedExecutorIdleTimeout=30min
+spark.dynamicAllocation.schedulerBacklogTimeout=1s
+spark.dynamicAllocation.sustainedSchedulerBacklogTimeout=1s
+spark.dynamicAllocation.executorAllocationRatio=0.5
+# 配置自适应查询优化
+spark.sql.adaptive.enabled=true
+spark.sql.adaptive.forceApply=false
+spark.sql.adaptive.logLevel=info
+spark.sql.adaptive.advisoryPartitionSizeInBytes=256m
+spark.sql.adaptive.coalescePartitions.enabled=true
+spark.sql.adaptive.coalescePartitions.minPartitionNum=1
+spark.sql.adaptive.coalescePartitions.initialPartitionNum=8192
+spark.sql.adaptive.fetchShuffleBlocksInBatch=true
+spark.sql.adaptive.localShuffleReader.enabled=true
+spark.sql.adaptive.skewJoin.enabled=true
+spark.sql.adaptive.skewJoin.skewedPartitionFactor=5
+spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes=400m
+spark.sql.adaptive.nonEmptyPartitionRatioForBroadcastJoin=0.2
+spark.sql.adaptive.optimizer.excludedRules
+spark.sql.autoBroadcastJoinThreshold=-1
+
+kyuubi.ha.zookeeper.publish.configs true
+```
+
+## Kyuubi Server 启动
+环境配置好后，在 kyuubi 的部署根路径内执行./bin/kyuubi start即可。
+``` bash
+[root@cvm-da-devsvr-hdtestcom02 apache-kyuubi-1.7.1-bin]# ./bin/kyuubi start
+Using kyuubi environment file /opt/apache-kyuubi-1.7.1-bin/conf/kyuubi-env.sh to initialize...
+JAVA_HOME: /usr/local/jdk1.8.0_101
+KYUUBI_HOME: /opt/apache-kyuubi-1.7.1-bin
+KYUUBI_CONF_DIR: /opt/apache-kyuubi-1.7.1-bin/conf
+KYUUBI_LOG_DIR: /opt/apache-kyuubi-1.7.1-bin/logs
+KYUUBI_PID_DIR: /opt/apache-kyuubi-1.7.1-bin/pid
+KYUUBI_WORK_DIR_ROOT: /opt/apache-kyuubi-1.7.1-bin/work
+FLINK_HOME:
+FLINK_ENGINE_HOME: /opt/apache-kyuubi-1.7.1-bin/externals/engines/flink
+SPARK_HOME: /opt/spark3
+SPARK_CONF_DIR: /opt/spark3/conf
+SPARK_ENGINE_HOME: /opt/apache-kyuubi-1.7.1-bin/externals/engines/spark
+TRINO_ENGINE_HOME: /opt/apache-kyuubi-1.7.1-bin/externals/engines/trino
+HIVE_ENGINE_HOME: /opt/apache-kyuubi-1.7.1-bin/externals/engines/hive
+HADOOP_CONF_DIR: /usr/hdp/3.1.0.0-78/hadoop/conf
+YARN_CONF_DIR:
+Starting org.apache.kyuubi.server.KyuubiServer, logging to /opt/apache-kyuubi-1.7.1-bin/logs/kyuubi-root-org.apache.kyuubi.server.KyuubiServer-cvm-da-devsvr-hdtestcom02.out
+Welcome to
+
+
+            __  __                            __
+           /` \/` \                          /` \       __
+           \ \ \/ /    __  __  __  __   __ __\ \ \____ /\_\
+            \ \ , <   /` \/` \/` \/` \/` \/` \\ \ \__` \/` \
+             \ \ \ \`\\ \ \_\ \\ \_\  \\ \_\  \\ \ \L\  \ \ \
+              \ \_\ \_ \/`____ \ \____/ \ \____`\ \_,__/ \ \_\
+               \/_/\/_/ `/___/> \/___/   \/___/  \/___/   \/_/
+                           /\___/
+                           \/__\/
+```
+
+
+同理，停止时调用./bin/kyuubi stop即可。
+```bash
+[root@cvm-da-devsvr-hdtestcom02 apache-kyuubi-1.7.1-bin]# ./bin/kyuubi stop
+Stopping org.apache.kyuubi.server.KyuubiServer
+
+
+            __  __                            __
+           /` \/` \                          /` \       __
+           \ \ \/ /    __  __  __  __   __ __\ \ \____ /\_\
+            \ \ , <   /` \/` \/` \/` \/` \/` \\ \ \__` \/` \
+             \ \ \ \`\\ \ \_\ \\ \_\  \\ \_\  \\ \ \L\  \ \ \
+              \ \_\ \_ \/`____ \ \____/ \ \____`\ \_,__/ \ \_\
+               \/_/\/_/ `/___/> \/___/   \/___/  \/___/   \/_/
+                           /\___/
+                           \/__\/
+
+
+Bye!
+```
+
+
+## 监控
+Kyuubi具有基于Dropwizard Metrics库的可配置指标系统。这使得用户可以将Kyuubi的指标报告给各种kyuubi.metrics.reporters。Dropwizard Metrics库是一个常用的度量指标库，用于测量和报告应用程序的各种性能指标。
+我们在kyuubi 的服务配置中补充了Prometheus 的监控配置信息，可以从0.0.0.0:10019/metrics中获取到 Prometheus 可读的监控信息。
+
+### 比较重要的监控项
+kyuubi.connection.total: 累积连接计数。可以用来监控 Kyuubi 服务器上建立的总连接数，帮助了解系统的负载和连接使用情况。
+
+kyuubi.connection.opened: 当前活动连接计数。用于监控当前活动的连接数，可以帮助评估系统的连接并发性能和资源使用情况。
+
+kyuubi.operation.total: 累积打开的操作计数。用于记录已打开的操作总数，可用于监控系统中发送的查询或操作的数量。
+
+kyuubi.operation.opened: 当前打开的操作计数。可以用来监控当前活动的操作数，帮助评估系统的查询并发性能和资源使用情况。
+
+kyuubi.operation.failed: 特定类型操作失败的累积计数。可以根据不同的错误类型，例如执行错误或分析错误，监控操作失败情况，帮助排查和解决问题。
+
+kyuubi.engine.total: 累积创建的引擎计数。用于监控创建的引擎总数，可用于评估系统对查询请求的处理能力。
+
+kyuubi.engine.timeout: 累积超时引擎计数。可以帮助识别引擎超时的情况，并进行故障排查和性能调优。
+
+kyuubi.backend_service.execute_statement: kyuubi 后端服务执行 executeStatement 方法的执行时间和速率。用于监控查询执行的性能和效率。
+
+
+## Kyuubi 性能测试
+测试 Case 如下：
+```sql
+-- SQL1 Group by 场景
+use tpch_flat_orc_500;
+select
+	c_custkey,
+	c_name,
+	sum(l_extendedprice * (1 - l_discount)) as revenue,
+	c_acctbal,
+	n_name,
+	c_address,
+	c_phone,
+	c_comment
+from
+	customer,
+	orders,
+	lineitem,
+	nation
+where
+	c_custkey = o_custkey
+	and l_orderkey = o_orderkey
+	and o_orderdate >= '1993-07-01'
+	and o_orderdate < '1993-10-01'
+	and l_returnflag = 'R'
+	and c_nationkey = n_nationkey
+group by
+	c_custkey,
+	c_name,
+	c_acctbal,
+	c_phone,
+	n_name,
+	c_address,
+	c_comment
+order by
+	revenue desc
+limit 20;
+
+-- SQL2 复杂select数据筛选场景
+use tpch_flat_orc_500;
+select
+	sum(l_extendedprice* (1 - l_discount)) as revenue
+from
+	lineitem,
+	part
+where
+	(
+		p_partkey = l_partkey
+		and p_brand = 'Brand#32'
+		and p_container in ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG')
+		and l_quantity >= 7 and l_quantity <= 7 + 10
+		and p_size between 1 and 5
+		and l_shipmode in ('AIR', 'AIR REG')
+		and l_shipinstruct = 'DELIVER IN PERSON'
+	)
+	or
+	(
+		p_partkey = l_partkey
+		and p_brand = 'Brand#35'
+		and p_container in ('MED BAG', 'MED BOX', 'MED PKG', 'MED PACK')
+		and l_quantity >= 15 and l_quantity <= 15 + 10
+		and p_size between 1 and 10
+		and l_shipmode in ('AIR', 'AIR REG')
+		and l_shipinstruct = 'DELIVER IN PERSON'
+	)
+	or
+	(
+		p_partkey = l_partkey
+		and p_brand = 'Brand#24'
+		and p_container in ('LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')
+		and l_quantity >= 26 and l_quantity <= 26 + 10
+		and p_size between 1 and 15
+		and l_shipmode in ('AIR', 'AIR REG')
+		and l_shipinstruct = 'DELIVER IN PERSON'
+	);
+
+-- SQL3 view 创建 + join 场景
+use tpch_flat_orc_500;
+drop view q11_part_tmp_cached;
+drop view q11_sum_tmp_cached;
+
+create view q11_part_tmp_cached as
+select
+	ps_partkey,
+	sum(ps_supplycost * ps_availqty) as part_value
+from
+	partsupp,
+	supplier,
+	nation
+where
+	ps_suppkey = s_suppkey
+	and s_nationkey = n_nationkey
+	and n_name = 'GERMANY'
+group by ps_partkey;
+
+create view q11_sum_tmp_cached as
+select
+	sum(part_value) as total_value
+from
+	q11_part_tmp_cached;
+
+select
+	ps_partkey, part_value as value
+from (
+	select
+		ps_partkey,
+		part_value,
+		total_value
+	from
+		q11_part_tmp_cached join q11_sum_tmp_cached
+) a
+where
+	part_value > total_value * 0.0001
+order by
+	value desc;
+```
+
+配置：
+Tez 任务保证队列资源足够，单 Container内存 4G，tez.am.vertex.max-task-concurrency配置为 20。
+STS 配置 max executor 数配置为40，单 executor 配置 2 核 2G。
+Kyuubi 的max executor数为 40，单 executor 配置 2 核 2G。
+ 
+测试结果：
+	Kyuubi	STS	Tez
+|       | Kyuubi   | STS      | Tez           |
+|-------|----------|----------|---------------|
+| SQL1  | 120.712s | 148.39s  | 超过 10 分钟   |
+| SQL2  | 45.502s  | 85.484s  | 超过 10 分钟   |
+| SQL3  | 110.201s | 69.428s  | 超过 10 分钟   |
+
+从测试结果可以看到，测试环境有限资源下，Kyuubi 的性能部分场景优于 STS，性能大幅优于 Tez。
