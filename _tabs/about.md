@@ -4,5 +4,35 @@ icon: fas fa-info-circle
 order: 4
 ---
 
-> Add Markdown syntax content to file `_tabs/about.md`{: .filepath } and it will show up on this page.
-{: .prompt-tip }
+# 关于本博客
+
+欢迎来到我的大数据运维博客！
+
+我是Sam，一名专注于大数据的运维工程师，拥有多年大数据运维工作经历。在这里，我将分享我的经验、技巧以及在日常工作中遇到的各种挑战和解决方案。无论你是刚刚接触大数据领域的新手，还是经验丰富的专业人士，我都希望能够为你提供有价值的信息。
+
+## 我的背景
+
+- **姓名**: Sam
+- **专业领域**: 大数据运维
+- **专长**: Hadoop、Hive on Tez、Spark、Kafka、Flink、Kyuubi、Paimon 等大数据技术栈
+
+## 博客内容
+
+在本博客中，你可以找到以下内容：
+
+- **技术文章**: 深入解析大数据技术及其应用
+- **实战案例**: 分享在实际工作中遇到的问题和解决方案
+- **工具推荐**: 介绍一些实用的大数据运维工具
+- **最佳实践**: 提供提高工作效率和质量的最佳实践建议
+- **行业动态**: 跟踪大数据技术的发展趋势和最新动态
+
+## 交流与互动
+
+欢迎邮件和 Github 私戳～我会尽量及时回复～
+- **邮箱**: sam_sheng@outlook.com
+- **GitHub**: [Sam的仓库](https://github.com/samstaygold)
+
+谢谢你的关注和支持，希望你在这里能有所收获！
+
+Sam
+
