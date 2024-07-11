@@ -1,8 +1,8 @@
 ---
 title: 为HDP集群机器更改hostname
 date: 2020-09-10 20:01:03 +0800
-categories: [大数据, HDFS]
-tags: [hdfs]
+categories: [大数据, HDP]
+tags: [hdp]
 ---
 
 __参考文档__ [HDP DOC](https://docs.cloudera.com/HDPDocuments/Ambari-2.6.2.0/bk_ambari-administration/content/ch_changing_host_names.html)
