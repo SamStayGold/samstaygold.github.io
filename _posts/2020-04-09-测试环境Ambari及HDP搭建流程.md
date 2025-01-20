@@ -176,7 +176,9 @@ ambari-admin-2.7.3.0.139.jar
 Ambari repo file contains latest json url http://public-repo-1.hortonworks.com/HDP/hdp_urlinfo.json, updating stacks repoinfos with it...
 Adjusting ambari-server permissions and ownership...
 Ambari Server 'setup' completed successfully.		# 安装成功
-```这里用mac配置的时候有个小bug，输入delete会专成^H，上下左右也会变成字符，因此只能先在其他地方输入好再复制上去。
+```
+这里用mac配置的时候有个小bug，输入delete会专成^H，上下左右也会变成字符，因此只能先在其他地方输入好再复制上去。
+
 3. 在mysql内执行ambari-server安装过程中提示的sql文件。
 ```
 [root@nd-00 ~]# mysql -u ambari -p -h nd-00
