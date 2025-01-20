@@ -241,6 +241,3 @@ Zookeeper 过于敏感：Hadoop 的配置项中 Zookeeper 的 session timeout �
 #### 相关文章
 - [[1]Sanjay Radia, Suresh Srinivas. High Availability for the HDFS Namenode.](https://issues.apache.org/jira/browse/HDFS-1623)
 - [[2]Todd Lipcon . Quorum-Journal Design.](https://issues.apache.org/jira/browse/HDFS-3077)
-- [[3]L Lamport. Paxos Made Simple. ACM SIGACT News,2001](http://research.microsoft.com/en-us/um/people/lamport/pubs/paxos-simple.pdf)
-- [[4]Tom White.Hadoop: The Definitive Guide 4th Edition. O’Reilly Media, Inc., 2015](http://shop.oreilly.com/product/0636920033448.do)
-- [developerWorks 开源技术主题](http://www.ibm.com/developerworks/cn/opensource/)：查找丰富的操作信息、工具和项目更新，帮助您掌握开源技术并将其用于 IBM 产品。
