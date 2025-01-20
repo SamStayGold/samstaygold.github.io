@@ -7,7 +7,6 @@ tags: [kerberos]
 
 为了保证集群的运行安全，需要将部署的集群接入kerberos，此处kerberos是内建再域控AD内的，ambari直接使用服务，无需额外部署。因为kerberos的特殊性，集群接入时注意的要点相当多，在我们为数不多的两次实践中，确实踩了很多坑。这里整理这篇文章，一来本着救死扶伤的精神，让后来的同学能够躲过这些坑的摧残，二来固化记忆，未来需要进行相关配置的时候能有个参照，三来就是抛砖引玉，希望不对的地方能够得到指正，缺乏描述之处也能有所补充。
 
-
 1.AD准备
 因为集群内kerberos Client接入的是AD，因此前期的配置需要在AD上进行，这里可以参考[IBM的一篇文章](https://www.ibm.com/docs/en/spectrum-scale-bda?topic=support-enable-kerberos-existing-active-directory)。这篇讲了从创建OU到配置读写权限账号等AD内的操作。重点是交予Ambari的OU管理员账号，需要对OU有创建及读写权限，以便自动创建集群各服务所需的认证账号。这一步有问题的话，Ambari接入Kerberos的测试会不通过，提示管理员账号无权限创建用户。
 
