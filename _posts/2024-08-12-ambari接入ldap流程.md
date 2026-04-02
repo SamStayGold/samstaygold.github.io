@@ -36,7 +36,7 @@ Search Base (OU=xxxx,DC=xxxx,DC=cn): ou=service_account,dc=xxxx,dc=cn
 Referral method [follow/ignore] (follow):follow
 Bind anonymously [true/false] (false):false
 # 这里绑定管理账号来同步数据
-Bind DN (cn=hdtest_admin,ou=hadoop_hdtest,dc=wesuretest,dc=cn):
+Bind DN (cn=hdtest_admin,ou=hadoop_hdtest,dc=xxxxxx,dc=cn):
 Enter Bind DN Password:
 Confirm Bind DN Password:
 # 这里是同步账号的过滤条件，可以根据实际情况设置，一般保持默认即可
